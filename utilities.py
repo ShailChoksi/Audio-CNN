@@ -1,78 +1,125 @@
 import scipy.io.wavfile
 import numpy as np
 import matplotlib.mlab
-from os import listdir
-from os.path import isfile, join
-from pylab import *
+import os
+"""from os import listdir
+from os.path import isfile, join"""
 
 def oneHotIt(Y):
-	m = Y.shape[0]
-	Y = Y[:,0]
-	OHX = scipy.sparse.csr_matrix((np.ones(m), (Y, np.array(range(m)))))
-	OHX = np.array(OHX.todense()).T
-	return OHX
+        m = Y.shape[0]
+        Y = Y[:,0]
+        OHX = scipy.sparse.csr_matrix((np.ones(m), (Y, np.array(range(m)))))
+        OHX = np.array(OHX.todense()).T
+        return OHX
 
 def processAudio(bpm,samplingRate,mypath):
-	onlyfiles = [f for f in listdir(mypath) if isfile(join(mypath, f))]
-	classes = len(onlyfiles)
+        instrIndex = 0
+        completeData = []
+        completeLabel = []
+        testData = []
+        testLabel = []
+        instruments = []
+        testName = ''
 
-	dataList = []
-	labelList = []
-	for ix,audioFile in enumerate(onlyfiles):
-		wavData = scipy.io.wavfile.read(mypath+audioFile)
+        for name in os.listdir(mypath):
+                tempPath = os.path.join(mypath, name)
+                if os.path.isdir(tempPath) and name.lower() != 'test':
+                        instruments.append(name)
+                        print(name, ' is ', instrIndex)
+                        onlyfiles = [f for f in os.listdir(tempPath) if os.path.isfile(os.path.join(tempPath, f))]
 
-		#wavData[0] = samplingRate, wavData[1] = Data: [leftChannelValues, RightChannelValues]
-		rightChannelData = wavData[1][:,1]
-		numOfValues = rightChannelData.shape[0]
+                        for ix,audioFile in enumerate(onlyfiles):
+                                audData = scipy.io.wavfile.read(tempPath+'/'+audioFile)
+                                seconds = audData[1][:,1].shape[0]/samplingRate
+                                samples = (seconds/60) * bpm
+                                """print(len(audData[1][:,1][0:math.floor(samples)*((seconds*samplingRate)/samples)]))
+                                print((math.floor(samples),(seconds*samplingRate)/samples))"""
 
-		seconds = int(numOfValues/samplingRate)
-		samples = int((seconds/60)*bpm)
-		trimmedData = rightChannelData[0:seconds*samplingRate]
-		audData = np.reshape(trimmedData,[samples,int((seconds*samplingRate)/samples)]) #
-		#print(audData)
-		for data in audData:
-			dataList.append(data)
-		labelList.append(np.ones([samples,1])*ix)
-	Ys = np.concatenate(labelList)
+                                audData = np.reshape(audData[1][:,1][0:int(int(samples)*((seconds*samplingRate)/samples))],[int(samples),int((seconds*samplingRate)/samples)])
+                                for data in audData:
+                                        completeData.append(data)
+                                completeLabel.append(np.ones([int(samples),1])*instrIndex)
+                        instrIndex = instrIndex + 1
+                elif os.path.isdir(tempPath) and name.lower() == 'test':
+                        testName = tempPath
 
-	#print(dataList)
-	#print(Ys)
-	# dataList = array of size: samples x (seconds*# of songs)/samples in song)]
-	# dataList = [[song1p1 # # # .... # # #]
-	#			[song1p2 # # # ... # # #]
-	#			...
-	#			[songNpN # # # ... # # #]]
+        if testName != '':
+                onlyfiles = [f for f in os.listdir(testName) if os.path.isfile(os.path.join(testName, f))]
+                index = -1
 
-	specX = np.zeros([len(dataList),1024])
-	xindex = 0
+                for ix,audioFile in enumerate(onlyfiles):
+                        index = -1
+                        for instr in instruments:
+                                if instr.lower() in audioFile.lower():
+                                        index=instruments.index(instr)
+                                        break
 
-	#loop to fill specX with FFT data
-	for x in dataList:
-		#short time Fourier Transform
-		work = matplotlib.mlab.specgram(x)[0]
+                        audData = scipy.io.wavfile.read(testName+'/'+audioFile)
+                        seconds = audData[1][:,1].shape[0]/samplingRate
+                        samples = (seconds/60) * bpm
 
-		#plot(range(0, 129), work)
-		#show()
-		worka = work[0:60,:]
-		worka = scipy.misc.imresize(worka,[32,32])
-		worka = np.reshape(worka,[1,1024])
-		specX[xindex,:] = worka
-		xindex +=1
+                        audData = np.reshape(audData[1][:,1][0:int(int(samples)*((seconds*samplingRate)/samples))],[int(samples),int((seconds*samplingRate)/samples)])
+                        for data in audData:
+                                testData.append(data)
+                        testLabel.append(np.ones([int(samples),1])*index)
 
-	split1 = specX.shape[0] - int(specX.shape[0]/20) # 95% of data
-	split2 = int((specX.shape[0] - split1) / 2) # 2.5% of data
 
-	formatToUse = specX
-	Data = np.concatenate((formatToUse,Ys),axis=1)
-	DataShuffled = np.random.permutation(Data)
 
-	#split last column (contains Ys aka song index aka class)
-	newX,newY = np.hsplit(DataShuffled,[-1])
-	trainX,otherX = np.split(newX,[split1])
-	trainYa,otherY = np.split(newY,[split1])
-	valX, testX = np.split(otherX,[split2])
-	valYa,testYa = np.split(otherY,[split2])
-	trainY = oneHotIt(trainYa)
-	testY = oneHotIt(testYa)
-	valY = oneHotIt(valYa)
-	return classes,trainX,trainYa,valX,valY,testX,testY
+        Ys = np.concatenate(completeLabel)
+        Y = np.concatenate(testLabel)
+
+        specX = np.zeros([len(completeData),1024])
+        xindex = 0
+        for x in completeData:
+                work = matplotlib.mlab.specgram(x)[0]
+                worka = work[0:60,:]
+                worka = scipy.misc.imresize(worka,[32,32])
+                worka = np.reshape(worka,[1,1024])
+                specX[xindex,:] = worka
+                xindex +=1
+
+        testSpecX = np.zeros([len(testData),1024])
+        testXIndex = 0
+        for x in testData:
+                work = matplotlib.mlab.specgram(x)[0]
+                worka = work[0:60,:]
+                worka = scipy.misc.imresize(worka,[32,32])
+                worka = np.reshape(worka,[1,1024])
+                testSpecX[testXIndex,:] = worka
+                testXIndex +=1
+
+        split1 = specX.shape[0] - int(specX.shape[0]/20)
+        split2 = int((specX.shape[0] - split1) / 2)
+
+        formatToUse = specX
+        Data = np.concatenate((formatToUse,Ys),axis=1)
+        DataShuffled = np.random.permutation(Data)
+        trainX,trainYa = np.hsplit(DataShuffled,[-1])
+        """trainX,otherX = np.split(newX,[split1])
+        trainYa,otherY = np.split(newY,[split1])
+        valX, testX = np.split(otherX,[split2])
+        valYa,testYa = np.split(otherY,[split2])
+        trainY = oneHotIt(trainYa)
+        testY = oneHotIt(testYa)
+        valY = oneHotIt(valYa)"""
+        trainY = oneHotIt(trainYa)
+        testY = oneHotIt(Y)
+        #testX = testSpecX
+        #testY = testLabel
+        return instrIndex,trainX,trainYa,testSpecX,testY
+
+        """split1 = specX.shape[0] - int(specX.shape[0]/20)
+        split2 = int((specX.shape[0] - split1) / 2)
+
+        formatToUse = specX
+        Data = np.concatenate((formatToUse,Ys),axis=1)
+        DataShuffled = np.random.permutation(Data)
+        newX,newY = np.hsplit(DataShuffled,[-1])
+        trainX,otherX = np.split(newX,[split1])
+        trainYa,otherY = np.split(newY,[split1])
+        valX, testX = np.split(otherX,[split2])
+        valYa,testYa = np.split(otherY,[split2])
+        trainY = oneHotIt(trainYa)
+        testY = oneHotIt(testYa)
+        valY = oneHotIt(valYa)
+        return instrIndex,trainX,trainYa,valX,valY,testX,testY"""
